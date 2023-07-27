@@ -34,7 +34,7 @@ var (
 	readTimeout = envGet("READ_TIMEOUT", 60).(int)
 	timeout     = envGet("TIMEOUT", 15).(int)
 	apiId       = envGet("API_ID", "").(string)
-	apiToken    = envGet("API_TOKEN", "").(string)
+	apiKey      = envGet("API_KEY", "").(string)
 	cacheTtl    = envGet("CACHE_TTL", 240).(int)
 )
 
@@ -46,12 +46,12 @@ func root(cmd *cobra.Command, args []string) {
 
 	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
-	if apiId == "" || apiToken == "" {
-		logger.Error("Imperva API ID and Token are required")
+	if apiId == "" || apiKey == "" {
+		logger.Error("Imperva API ID and Key are required")
 		os.Exit(1)
 	}
 
-	e = exporter.NewExporter(logger, apiId, apiToken, timeout, cacheTtl)
+	e = exporter.NewExporter(logger, apiId, apiKey, timeout, cacheTtl)
 	prometheus.MustRegister(e)
 	prometheus.MustRegister(v.NewCollector("imperva_exporter"))
 
