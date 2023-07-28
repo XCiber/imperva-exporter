@@ -2,6 +2,7 @@ package imperva
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/kofalt/go-memoize"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/xciber/imperva-exporter/pkg/metrics"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -183,25 +185,19 @@ type SiteListResponse struct {
 	} `json:"debug_info"`
 }
 
+type TSData struct {
+	Data [][]int64 `json:"data"`
+	Id   string    `json:"id"`
+	Name string    `json:"name"`
+}
+
 type StatsTimeSeriesResponse struct {
-	BandwidthTimeseries []struct {
-		Data [][]int64 `json:"data"`
-		Id   string    `json:"id"`
-		Name string    `json:"name"`
-	} `json:"bandwidth_timeseries"`
-	VisitsTimeseries []struct {
-		Data [][]int64 `json:"data"`
-		Id   string    `json:"id"`
-		Name string    `json:"name"`
-	} `json:"visits_timeseries"`
-	HitsTimeseries []struct {
-		Data [][]int64 `json:"data"`
-		Id   string    `json:"id"`
-		Name string    `json:"name"`
-	} `json:"hits_timeseries"`
-	Res        int    `json:"res"`
-	ResMessage string `json:"res_message"`
-	DebugInfo  struct {
+	BandwidthTimeseries []TSData `json:"bandwidth_timeseries"`
+	VisitsTimeseries    []TSData `json:"visits_timeseries"`
+	HitsTimeseries      []TSData `json:"hits_timeseries"`
+	Res                 int      `json:"res"`
+	ResMessage          string   `json:"res_message"`
+	DebugInfo           struct {
 		IdInfo string `json:"id-info"`
 	} `json:"debug_info"`
 }
@@ -278,18 +274,18 @@ func (c *Client) GetMetrics(ch chan<- prometheus.Metric) {
 	up := 1.0
 	ml := make([]*prometheus.Metric, 0)
 
-	ddosMetrics, err := c.getSitesWafMetrics()
+	wafMetrics, err := c.getSitesWafMetrics()
 	if err != nil {
 		up = 0.0
 	} else {
-		ml = append(ml, ddosMetrics...)
+		ml = append(ml, wafMetrics...)
 	}
 
-	stats, err := c.getStatsTimeSeriesMetrics()
+	statsMetrics, err := c.getStatsTimeSeriesMetrics()
 	if err != nil {
 		up = 0.0
 	} else {
-		ml = append(ml, stats...)
+		ml = append(ml, statsMetrics...)
 	}
 
 	ml = append(ml, c.metrics["up"].GetPromMetric(up, nil))
@@ -299,7 +295,7 @@ func (c *Client) GetMetrics(ch chan<- prometheus.Metric) {
 	}
 }
 
-func (c *Client) DescibeMetrics(ch chan<- *prometheus.Desc) {
+func (c *Client) DescribeMetrics(ch chan<- *prometheus.Desc) {
 	for _, m := range c.metrics {
 		ch <- m.Desc
 	}
@@ -354,107 +350,166 @@ func (c *Client) getSitesWafMetrics() ([]*prometheus.Metric, error) {
 	return res, nil
 }
 
+func (c *Client) tsdToMetric(domain string, tsData TSData) (*prometheus.Metric, error) {
+	// we relay that values are sorted by time, and we take
+	// one point before the last one for each time series
+	// because the last one is not complete
+	// so data will be 5 minutes (one bucket) late
+	// in future we will try to scape last point diffs
+	// to get a more accurate value
+	t := len(tsData.Data) - 2
+	if t < 0 {
+		return nil, fmt.Errorf("no data for metric %s", tsData.Id)
+	}
+
+	if len(tsData.Data[t]) != 2 {
+		return nil, fmt.Errorf("wrong number of data for metric %s", tsData.Id)
+	}
+
+	switch tsData.Id {
+	case "api.stats.bandwidth_timeseries.bandwidth":
+		return c.metrics["bandwidth"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.bandwidth_timeseries.bps":
+		return c.metrics["bps"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.hits_timeseries.human":
+		return c.metrics["hits_human"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.hits_timeseries.human_ps":
+		return c.metrics["hits_human_rps"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.hits_timeseries.bot":
+		return c.metrics["hits_bot"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.hits_timeseries.bot_ps":
+		return c.metrics["hits_bot_rps"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.hits_timeseries.blocked":
+		return c.metrics["hits_blocked"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.hits_timeseries.blocked_ps":
+		return c.metrics["hits_blocked_rps"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.visits_timeseries.human":
+		return c.metrics["visits_human"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	case "api.stats.visits_timeseries.bot":
+		return c.metrics["visits_bot"].GetPromMetric(float64(tsData.Data[t][1]), []string{domain}), nil
+	default:
+		return nil, fmt.Errorf("unknown metric %s", tsData.Id)
+	}
+}
+
+type TSWorkerData struct {
+	domain string
+	siteId int
+}
+
+func (c *Client) tsWorker(id int, input <-chan TSWorkerData, output chan<- *prometheus.Metric, wg *sync.WaitGroup) {
+
+	defer wg.Done()
+
+	c.logger.Debug("starting ts worker", "id", id)
+
+	for data := range input {
+		c.logger.Debug("worker gets site ts metrics", "id", id, "domain", data.domain)
+		c.getSiteTSMetrics(output, data.domain, data.siteId)
+	}
+
+	c.logger.Debug("worker finished processing input", "id", id)
+}
+
+func (c *Client) getSiteTSMetrics(ch chan<- *prometheus.Metric, domain string, siteId int) {
+
+	c.logger.Debug("getting site ts metrics", "domain", domain)
+	data, err, cached := c.cache.Memoize("TimeSeries_"+domain,
+		func() (interface{}, error) {
+			return c.postWithParams(
+				statsApiEndpoint,
+				map[string]string{
+					"site_id":     strconv.Itoa(siteId),
+					"stats":       "bandwidth_timeseries,hits_timeseries,visits_timeseries",
+					"time_range":  "today",
+					"granularity": "300000",
+				})
+		})
+	if err != nil {
+		c.logger.Error("Error getting time series", "domain", domain, "error", err)
+		return
+	}
+	c.logger.Debug("got site ts metrics", "domain", domain, "cached", cached)
+
+	tsr := &StatsTimeSeriesResponse{}
+	err = json.Unmarshal(data.([]byte), tsr)
+	if err != nil {
+		c.logger.Error("Error unmarshalling response", "domain", domain, "error", err)
+		return
+	}
+
+	c.logger.Debug("metrics unmarshalled", "domain", domain)
+
+	for _, tsData := range tsr.BandwidthTimeseries {
+		m, err := c.tsdToMetric(domain, tsData)
+		if err != nil {
+			c.logger.Error("Error converting time series data to metric", "error", err)
+			continue
+		}
+		ch <- m
+	}
+	c.logger.Debug("bandwidth metrics sent", "domain", domain)
+
+	for _, tsData := range tsr.HitsTimeseries {
+		m, err := c.tsdToMetric(domain, tsData)
+		if err != nil {
+			c.logger.Error("Error converting time series data to metric", "error", err)
+			continue
+		}
+		ch <- m
+	}
+	c.logger.Debug("hits metrics sent", "domain", domain)
+
+	for _, tsData := range tsr.VisitsTimeseries {
+		m, err := c.tsdToMetric(domain, tsData)
+		if err != nil {
+			c.logger.Error("Error converting time series data to metric", "error", err)
+			continue
+		}
+		ch <- m
+	}
+	c.logger.Debug("visits metrics sent", "domain", domain)
+}
+
 func (c *Client) getStatsTimeSeriesMetrics() ([]*prometheus.Metric, error) {
 
 	c.logger.Debug("getting stats time series metrics")
 
-	res := make([]*prometheus.Metric, 0)
+	// TODO: make this configurable
+	numWorkers := 5
+
+	inputCh := make(chan TSWorkerData)
+
+	resultCh := make(chan *prometheus.Metric, len(c.metrics)*len(c.sites.Sites))
+
+	wg := new(sync.WaitGroup)
+	wg.Add(numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		go c.tsWorker(i, inputCh, resultCh, wg)
+	}
 
 	for _, site := range c.sites.Sites {
-		data, err, _ := c.cache.Memoize("TimeSeries_"+site.Domain,
-			func() (interface{}, error) {
-				c.logger.Debug("getting stats time series", "domain", site.Domain)
-				return c.postWithParams(
-					statsApiEndpoint,
-					map[string]string{
-						"site_id":     strconv.Itoa(site.SiteId),
-						"stats":       "bandwidth_timeseries,hits_timeseries,visits_timeseries",
-						"time_range":  "today",
-						"granularity": "300000",
-					})
-			})
-		if err != nil {
-			return nil, err
-		}
-
-		tsData := &StatsTimeSeriesResponse{}
-		err = json.Unmarshal(data.([]byte), tsData)
-		if err != nil {
-			c.logger.Error("Error unmarshalling response", "error", err)
-			continue
-		}
-		for _, ts := range tsData.BandwidthTimeseries {
-
-			// we relay that values are sorted by time, and we take the last one for each time series
-			t := len(ts.Data) - 1
-			if t < 0 {
-				continue
-			}
-			v := len(ts.Data[t]) - 1
-			if v < 0 {
-				continue
-			}
-
-			switch ts.Id {
-			case "api.stats.bandwidth_timeseries.bandwidth":
-				res = append(res, c.metrics["bandwidth"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			case "api.stats.bandwidth_timeseries.bps":
-				res = append(res, c.metrics["bps"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			default:
-				c.logger.Warn("Unknown metric", "metric", ts.Id)
-			}
-		}
-		for _, ts := range tsData.HitsTimeseries {
-
-			// we relay that values are sorted by time, and we take the last one for each time series
-			t := len(ts.Data) - 1
-			if t < 0 {
-				continue
-			}
-			v := len(ts.Data[t]) - 1
-			if v < 0 {
-				continue
-			}
-
-			switch ts.Id {
-			case "api.stats.hits_timeseries.human":
-				res = append(res, c.metrics["hits_human"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			case "api.stats.hits_timeseries.human_ps":
-				res = append(res, c.metrics["hits_human_rps"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			case "api.stats.hits_timeseries.bot":
-				res = append(res, c.metrics["hits_bot"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			case "api.stats.hits_timeseries.bot_ps":
-				res = append(res, c.metrics["hits_bot_rps"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			case "api.stats.hits_timeseries.blocked":
-				res = append(res, c.metrics["hits_blocked"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			case "api.stats.hits_timeseries.blocked_ps":
-				res = append(res, c.metrics["hits_blocked_rps"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			default:
-				c.logger.Warn("Unknown metric", "metric", ts.Id)
-			}
-		}
-		for _, ts := range tsData.VisitsTimeseries {
-
-			// we relay that values are sorted by time, and we take the last one for each time series
-			t := len(ts.Data) - 1
-			if t < 0 {
-				continue
-			}
-			v := len(ts.Data[t]) - 1
-			if v < 0 {
-				continue
-			}
-
-			switch ts.Id {
-			case "api.stats.visits_timeseries.human":
-				res = append(res, c.metrics["visits_human"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			case "api.stats.visits_timeseries.bot":
-				res = append(res, c.metrics["visits_bot"].GetPromMetric(float64(ts.Data[t][v]), []string{site.Domain}))
-			default:
-				c.logger.Warn("Unknown metric", "metric", ts.Id)
-			}
+		inputCh <- TSWorkerData{
+			domain: site.Domain,
+			siteId: site.SiteId,
 		}
 	}
+
+	close(inputCh)
+	c.logger.Debug("input channel closed")
+
+	wg.Wait()
+	c.logger.Debug("All workers finished")
+
+	close(resultCh)
+	c.logger.Debug("result channel closed")
+
+	res := make([]*prometheus.Metric, 0)
+	for r := range resultCh {
+		res = append(res, r)
+	}
+
 	return res, nil
 }
 

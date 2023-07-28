@@ -17,7 +17,7 @@ type Exporter struct {
 
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 
-	e.impervaClient.DescibeMetrics(ch)
+	e.impervaClient.DescribeMetrics(ch)
 
 	ch <- e.totalScrapes.Desc()
 }
