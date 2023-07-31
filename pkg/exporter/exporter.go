@@ -35,9 +35,9 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) {
 	e.impervaClient.GetMetrics(ch)
 }
 
-func NewExporter(logger *slog.Logger, id string, secret string, timeout int, ttl int) *Exporter {
+func NewExporter(logger *slog.Logger, id string, secret string, timeout int, ttl int, workers int) *Exporter {
 	return &Exporter{
-		impervaClient: imperva.NewClient(id, secret, logger, timeout, ttl),
+		impervaClient: imperva.NewClient(id, secret, logger, timeout, ttl, workers),
 		totalScrapes: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "exporter_scrapes_total",

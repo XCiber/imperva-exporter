@@ -15,8 +15,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var appName = "IMPERVA_EXPORTER"
-var version = "undefined"
+var (
+	appName = "IMPERVA_EXPORTER"
+	version = "undefined"
+)
 
 func envGet(s string, d interface{}) interface{} {
 	return utils.EnvGet(fmt.Sprintf("%s_%s", appName, s), d)
@@ -32,7 +34,8 @@ var (
 	timeout     = envGet("TIMEOUT", 15).(int)
 	apiId       = envGet("API_ID", "").(string)
 	apiKey      = envGet("API_KEY", "").(string)
-	cacheTtl    = envGet("CACHE_TTL", 240).(int)
+	cacheTtl    = envGet("CACHE_TTL", 120).(int)
+	workers     = envGet("WORKERS", 5).(int)
 )
 
 func root(cmd *cobra.Command, args []string) {
@@ -48,7 +51,7 @@ func root(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	e = exporter.NewExporter(logger, apiId, apiKey, timeout, cacheTtl)
+	e = exporter.NewExporter(logger, apiId, apiKey, timeout, cacheTtl, workers)
 	prometheus.MustRegister(e)
 	prometheus.MustRegister(v.NewCollector("imperva_exporter"))
 
@@ -67,9 +70,10 @@ func root(cmd *cobra.Command, args []string) {
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "imperva-exporter",
-	Short: "Imperva metrics exporter",
-	Run:   root,
+	Use:     "imperva-exporter",
+	Short:   "Imperva metrics exporter",
+	Version: version,
+	Run:     root,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -88,4 +92,5 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&readTimeout, "read_timeout", readTimeout, "http server read readTimeout in seconds (default is '15')")
 	rootCmd.PersistentFlags().IntVar(&timeout, "timeout", timeout, "http client timeout in seconds (default is '60')")
 	rootCmd.PersistentFlags().IntVar(&cacheTtl, "cache_ttl", cacheTtl, "Imperva Cache TTL in seconds (default is '240')")
+	rootCmd.PersistentFlags().IntVar(&workers, "workers", workers, "Imperva query workers (default is '5')")
 }

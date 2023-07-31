@@ -28,36 +28,25 @@ type Client struct {
 	sites        *SiteListResponse
 	cache        *memoize.Memoizer
 	metrics      map[string]*metrics.MetricInfo
+	workers      int
 }
 
 type SiteListResponse struct {
 	Sites []struct {
-		SiteId               int      `json:"site_id"`
-		Status               string   `json:"status"`
-		Domain               string   `json:"domain"`
-		AccountId            int      `json:"account_id"`
-		AccelerationLevel    string   `json:"acceleration_level"`
-		AccelerationLevelRaw string   `json:"acceleration_level_raw"`
-		SiteCreationDate     int64    `json:"site_creation_date"`
-		Ips                  []string `json:"ips"`
-		//Dns                  []struct {
-		//	DnsRecordName string   `json:"dns_record_name"`
-		//	SetTypeTo     string   `json:"set_type_to"`
-		//	SetDataTo     []string `json:"set_data_to"`
-		//} `json:"dns"`
-		//OriginalDns []struct {
-		//	DnsRecordName string   `json:"dns_record_name"`
-		//	SetTypeTo     string   `json:"set_type_to"`
-		//	SetDataTo     []string `json:"set_data_to"`
-		//} `json:"original_dns"`
-		//Warnings []interface{} `json:"warnings"`
-		Active                               string `json:"active"`
-		SupportAllTlsVersions                bool   `json:"support_all_tls_versions"`
-		UseWildcardSanInsteadOfFullDomainSan bool   `json:"use_wildcard_san_instead_of_full_domain_san"`
-		AddNakedDomainSan                    bool   `json:"add_naked_domain_san"`
-		//AdditionalErrors                     []interface{} `json:"additionalErrors"`
-		DisplayName string `json:"display_name"`
-		Security    struct {
+		SiteId                               int      `json:"site_id"`
+		Status                               string   `json:"status"`
+		Domain                               string   `json:"domain"`
+		AccountId                            int      `json:"account_id"`
+		AccelerationLevel                    string   `json:"acceleration_level"`
+		AccelerationLevelRaw                 string   `json:"acceleration_level_raw"`
+		SiteCreationDate                     int64    `json:"site_creation_date"`
+		Ips                                  []string `json:"ips"`
+		Active                               string   `json:"active"`
+		SupportAllTlsVersions                bool     `json:"support_all_tls_versions"`
+		UseWildcardSanInsteadOfFullDomainSan bool     `json:"use_wildcard_san_instead_of_full_domain_san"`
+		AddNakedDomainSan                    bool     `json:"add_naked_domain_san"`
+		DisplayName                          string   `json:"display_name"`
+		Security                             struct {
 			Waf struct {
 				Rules []struct {
 					Action                 string `json:"action,omitempty"`
@@ -72,111 +61,8 @@ type SiteListResponse struct {
 				} `json:"rules"`
 			} `json:"waf"`
 		} `json:"security"`
-		//SealLocation struct {
-		//	Id   string `json:"id"`
-		//	Name string `json:"name"`
-		//} `json:"sealLocation"`
-		//Ssl struct {
-		//	OriginServer struct {
-		//		Detected        bool   `json:"detected"`
-		//		DetectionStatus string `json:"detectionStatus"`
-		//	} `json:"origin_server"`
-		//	CustomCertificate struct {
-		//		Active                bool   `json:"active"`
-		//		ExpirationDate        int64  `json:"expirationDate,omitempty"`
-		//		RevocationError       bool   `json:"revocationError,omitempty"`
-		//		ValidityError         bool   `json:"validityError,omitempty"`
-		//		ChainError            bool   `json:"chainError,omitempty"`
-		//		HostnameMismatchError bool   `json:"hostnameMismatchError,omitempty"`
-		//		FingerPrint           string `json:"fingerPrint,omitempty"`
-		//		SerialNumber          string `json:"serialNumber,omitempty"`
-		//		Hsm                   string `json:"hsm,omitempty"`
-		//		InputHash             string `json:"inputHash,omitempty"`
-		//	} `json:"custom_certificate"`
-		//	GeneratedCertificate struct {
-		//		Ca               string      `json:"ca"`
-		//		ValidationMethod string      `json:"validation_method"`
-		//		ValidationData   interface{} `json:"validation_data"`
-		//		San              []string    `json:"san"`
-		//		ValidationStatus string      `json:"validation_status"`
-		//		OrderId          string      `json:"orderId"`
-		//		ExpirationDate   int64       `json:"expirationDate"`
-		//	} `json:"generated_certificate"`
-		//} `json:"ssl"`
-		//SiteDualFactorSettings struct {
-		//	SpecificUsers []string `json:"specificUsers"`
-		//	Enabled       bool     `json:"enabled"`
-		//	CustomAreas   []struct {
-		//		Pattern string `json:"pattern"`
-		//		Url     string `json:"url"`
-		//	} `json:"customAreas"`
-		//	CustomAreasExceptions        []interface{} `json:"customAreasExceptions"`
-		//	AllowAllUsers                bool          `json:"allowAllUsers"`
-		//	ShouldSuggestApplicatons     bool          `json:"shouldSuggestApplicatons"`
-		//	AllowedMedia                 []string      `json:"allowedMedia"`
-		//	ShouldSendLoginNotifications bool          `json:"shouldSendLoginNotifications"`
-		//	Version                      int           `json:"version"`
-		//} `json:"siteDualFactorSettings"`
-		//LoginProtect struct {
-		//	Enabled           bool `json:"enabled"`
-		//	SpecificUsersList []struct {
-		//		Email  string `json:"email"`
-		//		Name   string `json:"name"`
-		//		Status string `json:"status"`
-		//	} `json:"specific_users_list"`
-		//	SendLpNotifications   bool     `json:"send_lp_notifications"`
-		//	AllowAllUsers         bool     `json:"allow_all_users"`
-		//	AuthenticationMethods []string `json:"authentication_methods"`
-		//	Urls                  []string `json:"urls"`
-		//	UrlPatterns           []string `json:"url_patterns"`
-		//} `json:"login_protect"`
-		//PerformanceConfiguration struct {
-		//	AdvancedCachingRules struct {
-		//		NeverCacheResources []struct {
-		//			Pattern string `json:"pattern"`
-		//			Url     string `json:"url"`
-		//		} `json:"never_cache_resources"`
-		//		AlwaysCacheResources []interface{} `json:"always_cache_resources"`
-		//	} `json:"advanced_caching_rules"`
-		//	AccelerationLevel         string `json:"acceleration_level"`
-		//	AccelerationLevelRaw      string `json:"acceleration_level_raw"`
-		//	AsyncValidation           bool   `json:"async_validation"`
-		//	MinifyJavascript          bool   `json:"minify_javascript"`
-		//	MinifyCss                 bool   `json:"minify_css"`
-		//	MinifyStaticHtml          bool   `json:"minify_static_html"`
-		//	CompressJpeg              bool   `json:"compress_jpeg"`
-		//	CompressJepg              bool   `json:"compress_jepg"`
-		//	ProgressiveImageRendering bool   `json:"progressive_image_rendering"`
-		//	AggressiveCompression     bool   `json:"aggressive_compression"`
-		//	CompressPng               bool   `json:"compress_png"`
-		//	OnTheFlyCompression       bool   `json:"on_the_fly_compression"`
-		//	TcpPrePooling             bool   `json:"tcp_pre_pooling"`
-		//	ComplyNoCache             bool   `json:"comply_no_cache"`
-		//	ComplyVary                bool   `json:"comply_vary"`
-		//	UseShortestCaching        bool   `json:"use_shortest_caching"`
-		//	PerferLastModified        bool   `json:"perfer_last_modified"`
-		//	PreferLastModified        bool   `json:"prefer_last_modified"`
-		//	DisableClientSideCaching  bool   `json:"disable_client_side_caching"`
-		//	Cache300X                 bool   `json:"cache300x"`
-		//	CacheHeaders              []struct {
-		//		HeaderName string `json:"headerName"`
-		//	} `json:"cache_headers"`
-		//} `json:"performance_configuration"`
-		//ExtendedDdos int    `json:"extended_ddos"`
-		//LogLevel     string `json:"log_level,omitempty"`
-		//IncapRules   []struct {
-		//	Id           int    `json:"id"`
-		//	Name         string `json:"name"`
-		//	Action       string `json:"action"`
-		//	Rule         string `json:"rule"`
-		//	CreationDate int64  `json:"creation_date"`
-		//} `json:"incap_rules"`
-		//RestrictedCnameReuse bool   `json:"restricted_cname_reuse"`
-		//Res                  int    `json:"res"`
-		//ResMessage           string `json:"res_message"`
-		//DebugInfo            struct {
-		//	IdInfo string `json:"id-info"`
-		//} `json:"debug_info"`
+		Res        int    `json:"res"`
+		ResMessage string `json:"res_message"`
 	} `json:"sites"`
 	Res        int    `json:"res"`
 	ResMessage string `json:"res_message"`
@@ -192,9 +78,9 @@ type TSData struct {
 }
 
 type StatsTimeSeriesResponse struct {
-	BandwidthTimeseries []TSData `json:"bandwidth_timeseries"`
-	VisitsTimeseries    []TSData `json:"visits_timeseries"`
-	HitsTimeseries      []TSData `json:"hits_timeseries"`
+	BandwidthTimeseries []TSData `json:"bandwidth_timeseries,omitempty"`
+	VisitsTimeseries    []TSData `json:"visits_timeseries,omitempty"`
+	HitsTimeseries      []TSData `json:"hits_timeseries,omitempty"`
 	Res                 int      `json:"res"`
 	ResMessage          string   `json:"res_message"`
 	DebugInfo           struct {
@@ -202,22 +88,17 @@ type StatsTimeSeriesResponse struct {
 	} `json:"debug_info"`
 }
 
+type SumData struct {
+	Data [][]interface{} `json:"data"`
+	Id   string          `json:"id"`
+	Name string          `json:"name"`
+}
+
 type StatsSummaryResponse struct {
-	RequestsGeoDistSummary struct {
-		Data [][]interface{} `json:"data"`
-		Id   string          `json:"id"`
-		Name string          `json:"name"`
-	} `json:"requests_geo_dist_summary"`
-	VisitsDistSummary []struct {
-		Data [][]interface{} `json:"data"`
-		Id   string          `json:"id"`
-		Name string          `json:"name"`
-	} `json:"visits_dist_summary"`
-	Res        int    `json:"res"`
-	ResMessage string `json:"res_message"`
-	DebugInfo  struct {
-		IdInfo string `json:"id-info"`
-	} `json:"debug_info"`
+	RequestsGeoDistSummary SumData   `json:"requests_geo_dist_summary"`
+	VisitsDistSummary      []SumData `json:"visits_dist_summary"`
+	Res                    int       `json:"res"`
+	ResMessage             string    `json:"res_message"`
 }
 
 func (c *Client) post(path string) ([]byte, error) {
@@ -281,7 +162,7 @@ func (c *Client) GetMetrics(ch chan<- prometheus.Metric) {
 		ml = append(ml, wafMetrics...)
 	}
 
-	statsMetrics, err := c.getStatsTimeSeriesMetrics()
+	statsMetrics, err := c.getDomainStats()
 	if err != nil {
 		up = 0.0
 	} else {
@@ -350,6 +231,52 @@ func (c *Client) getSitesWafMetrics() ([]*prometheus.Metric, error) {
 	return res, nil
 }
 
+func (c *Client) sumToMetric(domain string, data SumData) ([]*prometheus.Metric, error) {
+
+	res := make([]*prometheus.Metric, 0)
+	switch data.Id {
+	case "api.stats.requests_geo_dist_summary.datacenter":
+		for _, datum := range data.Data {
+			if len(datum) != 2 {
+				return nil, fmt.Errorf("invalid data format for metric %s", data.Id)
+			}
+			key := datum[0].(string)
+			if key == "" {
+				key = "unknown"
+			}
+			val := datum[1].(float64)
+			res = append(res, c.metrics["geo_dc"].GetPromMetric(val, []string{domain, key}))
+		}
+	case "api.stats.visits_dist_summary.country":
+		for _, datum := range data.Data {
+			if len(datum) != 2 {
+				return nil, fmt.Errorf("invalid data format for metric %s", data.Id)
+			}
+			key := datum[0].(string)
+			if key == "" {
+				key = "unknown"
+			}
+			val := datum[1].(float64)
+			res = append(res, c.metrics["visits_country"].GetPromMetric(val, []string{domain, key}))
+		}
+	case "api.stats.visits_dist_summary.client_app":
+		for _, datum := range data.Data {
+			if len(datum) != 2 {
+				return nil, fmt.Errorf("invalid data format for metric %s", data.Id)
+			}
+			key := datum[0].(string)
+			if key == "" {
+				key = "unknown"
+			}
+			val := datum[1].(float64)
+			res = append(res, c.metrics["visits_client"].GetPromMetric(val, []string{domain, key}))
+		}
+	default:
+		return nil, fmt.Errorf("unknown metric %s", data.Id)
+	}
+	return res, nil
+}
+
 func (c *Client) tsdToMetric(domain string, tsData TSData) (*prometheus.Metric, error) {
 	// we relay that values are sorted by time, and we take
 	// one point before the last one for each time series
@@ -392,12 +319,12 @@ func (c *Client) tsdToMetric(domain string, tsData TSData) (*prometheus.Metric, 
 	}
 }
 
-type TSWorkerData struct {
+type workerJob struct {
 	domain string
 	siteId int
 }
 
-func (c *Client) tsWorker(id int, input <-chan TSWorkerData, output chan<- *prometheus.Metric, wg *sync.WaitGroup) {
+func (c *Client) tsWorker(id int, input <-chan workerJob, output chan<- *prometheus.Metric, wg *sync.WaitGroup) {
 
 	defer wg.Done()
 
@@ -406,9 +333,58 @@ func (c *Client) tsWorker(id int, input <-chan TSWorkerData, output chan<- *prom
 	for data := range input {
 		c.logger.Debug("worker gets site ts metrics", "id", id, "domain", data.domain)
 		c.getSiteTSMetrics(output, data.domain, data.siteId)
+		c.getSiteSumNetrics(output, data.domain, data.siteId)
 	}
 
 	c.logger.Debug("worker finished processing input", "id", id)
+}
+
+func (c *Client) getSiteSumNetrics(ch chan<- *prometheus.Metric, domain string, siteId int) {
+	c.logger.Debug("getting site summary metrics", "domain", domain)
+	data, err, cached := c.cache.Memoize("Summary_"+domain,
+		func() (interface{}, error) {
+			return c.postWithParams(
+				statsApiEndpoint,
+				map[string]string{
+					"site_id":    strconv.Itoa(siteId),
+					"stats":      "requests_geo_dist_summary,visits_dist_summary",
+					"time_range": "today",
+				})
+		})
+	if err != nil {
+		c.logger.Error("Error getting summary", "domain", domain, "error", err)
+		return
+	}
+	c.logger.Debug("got site summary metrics", "domain", domain, "cached", cached)
+
+	sr := &StatsSummaryResponse{}
+	err = json.Unmarshal(data.([]byte), sr)
+	if err != nil {
+		c.logger.Error("Error unmarshalling summary response", "domain", domain, "error", err)
+		return
+	}
+
+	c.logger.Debug("summary metrics unmarshalled", "domain", domain)
+
+	m, err := c.sumToMetric(domain, sr.RequestsGeoDistSummary)
+	if err != nil {
+		c.logger.Error("Error converting sum data to metric", "error", err)
+	}
+	for _, metric := range m {
+		ch <- metric
+	}
+
+	for _, sumData := range sr.VisitsDistSummary {
+		m, err := c.sumToMetric(domain, sumData)
+		if err != nil {
+			c.logger.Error("Error converting sum data to metric", "error", err)
+			continue
+		}
+		for _, metric := range m {
+			ch <- metric
+		}
+	}
+
 }
 
 func (c *Client) getSiteTSMetrics(ch chan<- *prometheus.Metric, domain string, siteId int) {
@@ -471,39 +447,33 @@ func (c *Client) getSiteTSMetrics(ch chan<- *prometheus.Metric, domain string, s
 	c.logger.Debug("visits metrics sent", "domain", domain)
 }
 
-func (c *Client) getStatsTimeSeriesMetrics() ([]*prometheus.Metric, error) {
+func (c *Client) getDomainStats() ([]*prometheus.Metric, error) {
 
 	c.logger.Debug("getting stats time series metrics")
 
-	// TODO: make this configurable
-	numWorkers := 5
-
-	inputCh := make(chan TSWorkerData)
-
-	resultCh := make(chan *prometheus.Metric, len(c.metrics)*len(c.sites.Sites))
+	inputCh := make(chan workerJob, len(c.sites.Sites))
+	resultCh := make(chan *prometheus.Metric, c.workers)
 
 	wg := new(sync.WaitGroup)
-	wg.Add(numWorkers)
+	wg.Add(c.workers)
 
-	for i := 0; i < numWorkers; i++ {
+	for i := 0; i < c.workers; i++ {
 		go c.tsWorker(i, inputCh, resultCh, wg)
 	}
 
 	for _, site := range c.sites.Sites {
-		inputCh <- TSWorkerData{
-			domain: site.Domain,
-			siteId: site.SiteId,
-		}
+		inputCh <- workerJob{domain: site.Domain, siteId: site.SiteId}
 	}
 
 	close(inputCh)
 	c.logger.Debug("input channel closed")
 
-	wg.Wait()
-	c.logger.Debug("All workers finished")
-
-	close(resultCh)
-	c.logger.Debug("result channel closed")
+	go func() {
+		wg.Wait()
+		c.logger.Debug("All workers finished")
+		close(resultCh)
+		c.logger.Debug("result channel closed")
+	}()
 
 	res := make([]*prometheus.Metric, 0)
 	for r := range resultCh {
@@ -513,7 +483,7 @@ func (c *Client) getStatsTimeSeriesMetrics() ([]*prometheus.Metric, error) {
 	return res, nil
 }
 
-func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl int) *Client {
+func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl int, workers int) *Client {
 	c := &Client{
 		httpClient: &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
@@ -524,6 +494,7 @@ func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl i
 		metrics:      make(map[string]*metrics.MetricInfo),
 		cache:        memoize.NewMemoizer(time.Duration(ttl)*time.Second, time.Minute),
 		sites:        &SiteListResponse{},
+		workers:      workers,
 	}
 
 	// declare metrics
@@ -539,6 +510,9 @@ func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl i
 	c.metrics["hits_blocked_rps"] = metrics.NewMetric("hits_blocked_rps", "Site hits blocked per second", prometheus.GaugeValue, "imperva", "stats", []string{"domain"}, nil)
 	c.metrics["visits_human"] = metrics.NewMetric("visits_human", "Site visits from humans", prometheus.GaugeValue, "imperva", "stats", []string{"domain"}, nil)
 	c.metrics["visits_bot"] = metrics.NewMetric("visits_bot", "Site visits from bots", prometheus.GaugeValue, "imperva", "stats", []string{"domain"}, nil)
+	c.metrics["geo_dc"] = metrics.NewMetric("geo_dc", "Requests by data-center location", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "idc"}, nil)
+	c.metrics["visits_country"] = metrics.NewMetric("visits_dist_country", "Visits by country", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "country"}, nil)
+	c.metrics["visits_client"] = metrics.NewMetric("visits_client", "Visits by client application", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "client"}, nil)
 
 	return c
 }
