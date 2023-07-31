@@ -511,7 +511,7 @@ func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl i
 	c.metrics["visits_human"] = metrics.NewMetric("visits_human", "Site visits from humans", prometheus.GaugeValue, "imperva", "stats", []string{"domain"}, nil)
 	c.metrics["visits_bot"] = metrics.NewMetric("visits_bot", "Site visits from bots", prometheus.GaugeValue, "imperva", "stats", []string{"domain"}, nil)
 	c.metrics["geo_dc"] = metrics.NewMetric("geo_dc", "Requests by data-center location", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "idc"}, nil)
-	c.metrics["visits_country"] = metrics.NewMetric("visits_dist_country", "Visits by country", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "country"}, nil)
+	c.metrics["visits_country"] = metrics.NewMetric("visits_country", "Visits by country", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "country"}, nil)
 	c.metrics["visits_client"] = metrics.NewMetric("visits_client", "Visits by client application", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "client"}, nil)
 
 	return c
