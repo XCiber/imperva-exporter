@@ -86,12 +86,12 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&metricsPort, "listen", metricsPort, "metrics listen port (default is ':8080')")
-	rootCmd.PersistentFlags().StringVar(&metricsPath, "metrics", metricsPath, "metrics path (default is '/metrics')")
-	rootCmd.PersistentFlags().BoolVar(&debug, "debug", debug, "enable debug loglevel")
-	rootCmd.PersistentFlags().IntVar(&serverTimeout, "read_timeout", serverTimeout, "http server read timeout in seconds (default is '15')")
-	rootCmd.PersistentFlags().IntVar(&clientTimeout, "clientTimeout", clientTimeout, "http client timeout in seconds (default is '60')")
-	rootCmd.PersistentFlags().IntVar(&cacheTtl, "cache_ttl", cacheTtl, "Cache TTL in seconds (default is '120')")
-	rootCmd.PersistentFlags().IntVar(&workers, "workers", workers, "Initial query workers (default is '5')")
-	rootCmd.PersistentFlags().IntVar(&updateInterval, "update_interval", updateInterval, "Imperva update interval in seconds (default is '60')")
+	rootCmd.PersistentFlags().StringVar(&metricsPort, "listen", metricsPort, "metrics listen port, env: IMPERVA_EXPORTER_LISTEN")
+	rootCmd.PersistentFlags().StringVar(&metricsPath, "metrics", metricsPath, "metrics path, env: IMPERVA_EXPORTER_METRICS")
+	rootCmd.PersistentFlags().BoolVar(&debug, "debug", debug, "enable debug loglevel, env: IMPERVA_EXPORTER_DEBUG")
+	rootCmd.PersistentFlags().IntVar(&serverTimeout, "read_timeout", serverTimeout, "http server read timeout in seconds, env: IMPERVA_EXPORTER_SERVER_TIMEOUT")
+	rootCmd.PersistentFlags().IntVar(&clientTimeout, "clientTimeout", clientTimeout, "http client timeout in seconds, env: IMPERVA_EXPORTER_CLIENT_TIMEOUT")
+	rootCmd.PersistentFlags().IntVar(&cacheTtl, "cache_ttl", cacheTtl, "Cache TTL in seconds, env: IMPERVA_EXPORTER_CACHE_TTL")
+	rootCmd.PersistentFlags().IntVar(&workers, "workers", workers, "Initial query workers, env: IMPERVA_EXPORTER_WORKERS")
+	rootCmd.PersistentFlags().IntVar(&updateInterval, "update_interval", updateInterval, "Imperva update interval in seconds, env: IMPERVA_EXPORTER_UPDATE_INTERVAL")
 }
