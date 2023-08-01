@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -25,47 +24,49 @@ type Client struct {
 	logger       *slog.Logger
 	clientId     string
 	clientSecret string
-	sites        *SiteListResponse
+	Sites        map[string]SiteDesc
 	cache        *memoize.Memoizer
 	metrics      map[string]*metrics.MetricInfo
-	workers      int
+	//workers      int
+}
+
+type SiteDesc struct {
+	SiteId                               int      `json:"site_id"`
+	Status                               string   `json:"status"`
+	Domain                               string   `json:"domain"`
+	AccountId                            int      `json:"account_id"`
+	AccelerationLevel                    string   `json:"acceleration_level"`
+	AccelerationLevelRaw                 string   `json:"acceleration_level_raw"`
+	SiteCreationDate                     int64    `json:"site_creation_date"`
+	Ips                                  []string `json:"ips"`
+	Active                               string   `json:"active"`
+	SupportAllTlsVersions                bool     `json:"support_all_tls_versions"`
+	UseWildcardSanInsteadOfFullDomainSan bool     `json:"use_wildcard_san_instead_of_full_domain_san"`
+	AddNakedDomainSan                    bool     `json:"add_naked_domain_san"`
+	DisplayName                          string   `json:"display_name"`
+	Security                             struct {
+		Waf struct {
+			Rules []struct {
+				Action                 string `json:"action,omitempty"`
+				ActionText             string `json:"action_text,omitempty"`
+				Id                     string `json:"id"`
+				Name                   string `json:"name"`
+				BlockBadBots           bool   `json:"block_bad_bots,omitempty"`
+				ChallengeSuspectedBots bool   `json:"challenge_suspected_bots,omitempty"`
+				ActivationMode         string `json:"activation_mode,omitempty"`
+				ActivationModeText     string `json:"activation_mode_text,omitempty"`
+				DdosTrafficThreshold   int    `json:"ddos_traffic_threshold,omitempty"`
+			} `json:"rules"`
+		} `json:"waf"`
+	} `json:"security"`
+	Res        int    `json:"res"`
+	ResMessage string `json:"res_message"`
 }
 
 type SiteListResponse struct {
-	Sites []struct {
-		SiteId                               int      `json:"site_id"`
-		Status                               string   `json:"status"`
-		Domain                               string   `json:"domain"`
-		AccountId                            int      `json:"account_id"`
-		AccelerationLevel                    string   `json:"acceleration_level"`
-		AccelerationLevelRaw                 string   `json:"acceleration_level_raw"`
-		SiteCreationDate                     int64    `json:"site_creation_date"`
-		Ips                                  []string `json:"ips"`
-		Active                               string   `json:"active"`
-		SupportAllTlsVersions                bool     `json:"support_all_tls_versions"`
-		UseWildcardSanInsteadOfFullDomainSan bool     `json:"use_wildcard_san_instead_of_full_domain_san"`
-		AddNakedDomainSan                    bool     `json:"add_naked_domain_san"`
-		DisplayName                          string   `json:"display_name"`
-		Security                             struct {
-			Waf struct {
-				Rules []struct {
-					Action                 string `json:"action,omitempty"`
-					ActionText             string `json:"action_text,omitempty"`
-					Id                     string `json:"id"`
-					Name                   string `json:"name"`
-					BlockBadBots           bool   `json:"block_bad_bots,omitempty"`
-					ChallengeSuspectedBots bool   `json:"challenge_suspected_bots,omitempty"`
-					ActivationMode         string `json:"activation_mode,omitempty"`
-					ActivationModeText     string `json:"activation_mode_text,omitempty"`
-					DdosTrafficThreshold   int    `json:"ddos_traffic_threshold,omitempty"`
-				} `json:"rules"`
-			} `json:"waf"`
-		} `json:"security"`
-		Res        int    `json:"res"`
-		ResMessage string `json:"res_message"`
-	} `json:"sites"`
-	Res        int    `json:"res"`
-	ResMessage string `json:"res_message"`
+	Sites      []SiteDesc `json:"Sites"`
+	Res        int        `json:"res"`
+	ResMessage string     `json:"res_message"`
 	DebugInfo  struct {
 		IdInfo string `json:"id-info"`
 	} `json:"debug_info"`
@@ -78,9 +79,9 @@ type TSData struct {
 }
 
 type StatsTimeSeriesResponse struct {
-	BandwidthTimeseries []TSData `json:"bandwidth_timeseries,omitempty"`
-	VisitsTimeseries    []TSData `json:"visits_timeseries,omitempty"`
-	HitsTimeseries      []TSData `json:"hits_timeseries,omitempty"`
+	BandwidthTimeSeries []TSData `json:"bandwidth_timeseries,omitempty"`
+	VisitsTimeSeries    []TSData `json:"visits_timeseries,omitempty"`
+	HitsTimeSeries      []TSData `json:"hits_timeseries,omitempty"`
 	Res                 int      `json:"res"`
 	ResMessage          string   `json:"res_message"`
 	DebugInfo           struct {
@@ -151,83 +152,69 @@ func (c *Client) postWithParams(path string, param map[string]string) ([]byte, e
 	return body, nil
 }
 
-func (c *Client) GetMetrics(ch chan<- prometheus.Metric) {
-	up := 1.0
-	ml := make([]*prometheus.Metric, 0)
-
-	wafMetrics, err := c.getSitesWafMetrics()
-	if err != nil {
-		up = 0.0
-	} else {
-		ml = append(ml, wafMetrics...)
-	}
-
-	statsMetrics, err := c.getDomainStats()
-	if err != nil {
-		up = 0.0
-	} else {
-		ml = append(ml, statsMetrics...)
-	}
-
-	ml = append(ml, c.metrics["up"].GetPromMetric(up, nil))
-
-	for _, m := range ml {
-		ch <- *m
-	}
-}
-
 func (c *Client) DescribeMetrics(ch chan<- *prometheus.Desc) {
 	for _, m := range c.metrics {
 		ch <- m.Desc
 	}
 }
 
-func (c *Client) updateSiteList() error {
+func (c *Client) UpdateSiteList() error {
 
 	c.logger.Debug("updating site list")
 
-	siteList, err, cached := c.cache.Memoize("siteList",
-		func() (interface{}, error) {
-			return c.post(siteListEndpoint)
-		})
-	if err != nil {
-		return err
+	const pageSize = 100
+	page := 0
+
+	res := make([]SiteDesc, 0)
+
+	for {
+		siteList, err, cached := c.cache.Memoize("siteList"+strconv.Itoa(page),
+			func() (interface{}, error) {
+				return c.postWithParams(siteListEndpoint, map[string]string{
+					"page_size": strconv.Itoa(pageSize),
+					"page_num":  strconv.Itoa(page),
+				})
+			})
+		if err != nil {
+			return err
+		}
+
+		c.logger.Debug("site list call", "page", page, "cached", cached)
+
+		sr := &SiteListResponse{}
+		err = json.Unmarshal(siteList.([]byte), sr)
+		if err != nil {
+			c.logger.Error("Error unmarshalling response", "error", err)
+			return err
+		}
+		if len(sr.Sites) == 0 {
+			break
+		}
+		res = append(res, sr.Sites...)
+		page++
 	}
-
-	c.logger.Debug("ddos call", "cached", cached)
-
-	sr := &SiteListResponse{}
-	err = json.Unmarshal(siteList.([]byte), sr)
-	if err != nil {
-		c.logger.Error("Error unmarshalling response", "error", err)
-		return err
+	for _, r := range res {
+		c.Sites[r.Domain] = r
 	}
-
-	c.sites = sr
-
 	return nil
 }
 
-func (c *Client) getSitesWafMetrics() ([]*prometheus.Metric, error) {
+func (c *Client) getSiteWafMetrics(domain string) ([]*prometheus.Metric, error) {
 
-	c.logger.Debug("getting sites waf metrics")
+	c.logger.Debug("getting site waf metrics", "domain", domain)
 
 	res := make([]*prometheus.Metric, 0)
 
-	err := c.updateSiteList()
-	if err != nil {
-		c.logger.Error("Error updating site list", "error", err)
-		return nil, err
-	}
-
-	for _, site := range c.sites.Sites {
-		for _, rule := range site.Security.Waf.Rules {
+	if s, found := c.Sites[domain]; found {
+		for _, rule := range s.Security.Waf.Rules {
 			if rule.Id == "api.threats.ddos" {
-				res = append(res, c.metrics["ddos_threshold"].GetPromMetric(float64(rule.DdosTrafficThreshold), []string{site.Domain, rule.ActivationModeText}))
+				res = append(res, c.metrics["ddos_threshold"].GetPromMetric(float64(rule.DdosTrafficThreshold), []string{domain, rule.ActivationModeText}))
 			}
 		}
+	} else {
+		c.logger.Error("Site not found", "domain", domain)
+		return nil, fmt.Errorf("site not found")
 	}
-
 	return res, nil
 }
 
@@ -319,41 +306,29 @@ func (c *Client) tsdToMetric(domain string, tsData TSData) (*prometheus.Metric, 
 	}
 }
 
-type workerJob struct {
-	domain string
-	siteId int
-}
+func (c *Client) getSiteSumMetrics(domain string) ([]*prometheus.Metric, error) {
+	c.logger.Debug("getting site summary metrics", "domain", domain)
 
-func (c *Client) tsWorker(id int, input <-chan workerJob, output chan<- *prometheus.Metric, wg *sync.WaitGroup) {
-
-	defer wg.Done()
-
-	c.logger.Debug("starting ts worker", "id", id)
-
-	for data := range input {
-		c.logger.Debug("worker gets site ts metrics", "id", id, "domain", data.domain)
-		c.getSiteTSMetrics(output, data.domain, data.siteId)
-		c.getSiteSumNetrics(output, data.domain, data.siteId)
+	s, found := c.Sites[domain]
+	if !found {
+		return nil, fmt.Errorf("site not found")
 	}
 
-	c.logger.Debug("worker finished processing input", "id", id)
-}
+	res := make([]*prometheus.Metric, 0)
 
-func (c *Client) getSiteSumNetrics(ch chan<- *prometheus.Metric, domain string, siteId int) {
-	c.logger.Debug("getting site summary metrics", "domain", domain)
-	data, err, cached := c.cache.Memoize("Summary_"+domain,
+	data, err, cached := c.cache.Memoize("Summary_"+s.Domain,
 		func() (interface{}, error) {
 			return c.postWithParams(
 				statsApiEndpoint,
 				map[string]string{
-					"site_id":    strconv.Itoa(siteId),
+					"site_id":    strconv.Itoa(s.SiteId),
 					"stats":      "requests_geo_dist_summary,visits_dist_summary",
 					"time_range": "today",
 				})
 		})
 	if err != nil {
 		c.logger.Error("Error getting summary", "domain", domain, "error", err)
-		return
+		return nil, err
 	}
 	c.logger.Debug("got site summary metrics", "domain", domain, "cached", cached)
 
@@ -361,7 +336,7 @@ func (c *Client) getSiteSumNetrics(ch chan<- *prometheus.Metric, domain string, 
 	err = json.Unmarshal(data.([]byte), sr)
 	if err != nil {
 		c.logger.Error("Error unmarshalling summary response", "domain", domain, "error", err)
-		return
+		return nil, err
 	}
 
 	c.logger.Debug("summary metrics unmarshalled", "domain", domain)
@@ -370,9 +345,7 @@ func (c *Client) getSiteSumNetrics(ch chan<- *prometheus.Metric, domain string, 
 	if err != nil {
 		c.logger.Error("Error converting sum data to metric", "error", err)
 	}
-	for _, metric := range m {
-		ch <- metric
-	}
+	res = append(res, m...)
 
 	for _, sumData := range sr.VisitsDistSummary {
 		m, err := c.sumToMetric(domain, sumData)
@@ -380,22 +353,29 @@ func (c *Client) getSiteSumNetrics(ch chan<- *prometheus.Metric, domain string, 
 			c.logger.Error("Error converting sum data to metric", "error", err)
 			continue
 		}
-		for _, metric := range m {
-			ch <- metric
-		}
+		res = append(res, m...)
 	}
 
+	return res, nil
 }
 
-func (c *Client) getSiteTSMetrics(ch chan<- *prometheus.Metric, domain string, siteId int) {
+func (c *Client) getSiteTSMetrics(domain string) ([]*prometheus.Metric, error) {
 
 	c.logger.Debug("getting site ts metrics", "domain", domain)
-	data, err, cached := c.cache.Memoize("TimeSeries_"+domain,
+
+	s, found := c.Sites[domain]
+	if !found {
+		return nil, fmt.Errorf("site not found: %s", domain)
+	}
+
+	res := make([]*prometheus.Metric, 0)
+
+	data, err, cached := c.cache.Memoize("TimeSeries_"+s.Domain,
 		func() (interface{}, error) {
 			return c.postWithParams(
 				statsApiEndpoint,
 				map[string]string{
-					"site_id":     strconv.Itoa(siteId),
+					"site_id":     strconv.Itoa(s.SiteId),
 					"stats":       "bandwidth_timeseries,hits_timeseries,visits_timeseries",
 					"time_range":  "today",
 					"granularity": "300000",
@@ -403,7 +383,7 @@ func (c *Client) getSiteTSMetrics(ch chan<- *prometheus.Metric, domain string, s
 		})
 	if err != nil {
 		c.logger.Error("Error getting time series", "domain", domain, "error", err)
-		return
+		return nil, err
 	}
 	c.logger.Debug("got site ts metrics", "domain", domain, "cached", cached)
 
@@ -411,79 +391,69 @@ func (c *Client) getSiteTSMetrics(ch chan<- *prometheus.Metric, domain string, s
 	err = json.Unmarshal(data.([]byte), tsr)
 	if err != nil {
 		c.logger.Error("Error unmarshalling response", "domain", domain, "error", err)
-		return
+		return nil, err
 	}
 
 	c.logger.Debug("metrics unmarshalled", "domain", domain)
 
-	for _, tsData := range tsr.BandwidthTimeseries {
+	for _, tsData := range tsr.BandwidthTimeSeries {
 		m, err := c.tsdToMetric(domain, tsData)
 		if err != nil {
 			c.logger.Error("Error converting time series data to metric", "error", err)
 			continue
 		}
-		ch <- m
+		res = append(res, m)
 	}
 	c.logger.Debug("bandwidth metrics sent", "domain", domain)
 
-	for _, tsData := range tsr.HitsTimeseries {
+	for _, tsData := range tsr.HitsTimeSeries {
 		m, err := c.tsdToMetric(domain, tsData)
 		if err != nil {
 			c.logger.Error("Error converting time series data to metric", "error", err)
 			continue
 		}
-		ch <- m
+		res = append(res, m)
 	}
 	c.logger.Debug("hits metrics sent", "domain", domain)
 
-	for _, tsData := range tsr.VisitsTimeseries {
+	for _, tsData := range tsr.VisitsTimeSeries {
 		m, err := c.tsdToMetric(domain, tsData)
 		if err != nil {
 			c.logger.Error("Error converting time series data to metric", "error", err)
 			continue
 		}
-		ch <- m
+		res = append(res, m)
 	}
 	c.logger.Debug("visits metrics sent", "domain", domain)
-}
-
-func (c *Client) getDomainStats() ([]*prometheus.Metric, error) {
-
-	c.logger.Debug("getting stats time series metrics")
-
-	inputCh := make(chan workerJob, len(c.sites.Sites))
-	resultCh := make(chan *prometheus.Metric, c.workers)
-
-	wg := new(sync.WaitGroup)
-	wg.Add(c.workers)
-
-	for i := 0; i < c.workers; i++ {
-		go c.tsWorker(i, inputCh, resultCh, wg)
-	}
-
-	for _, site := range c.sites.Sites {
-		inputCh <- workerJob{domain: site.Domain, siteId: site.SiteId}
-	}
-
-	close(inputCh)
-	c.logger.Debug("input channel closed")
-
-	go func() {
-		wg.Wait()
-		c.logger.Debug("All workers finished")
-		close(resultCh)
-		c.logger.Debug("result channel closed")
-	}()
-
-	res := make([]*prometheus.Metric, 0)
-	for r := range resultCh {
-		res = append(res, r)
-	}
 
 	return res, nil
 }
 
-func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl int, workers int) *Client {
+func (c *Client) GetMetricsByDomain(domain string) ([]*prometheus.Metric, error) {
+	res := make([]*prometheus.Metric, 0)
+
+	m, err := c.getSiteWafMetrics(domain)
+	if err != nil {
+		return nil, err
+	}
+	res = append(res, m...)
+
+	m, err = c.getSiteTSMetrics(domain)
+	if err != nil {
+		return nil, err
+	}
+	res = append(res, m...)
+
+	m, err = c.getSiteSumMetrics(domain)
+	if err != nil {
+		return nil, err
+	}
+	res = append(res, m...)
+
+	return res, nil
+}
+
+func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl int) *Client {
 	c := &Client{
 		httpClient: &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
@@ -493,8 +463,7 @@ func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl i
 		clientSecret: secret,
 		metrics:      make(map[string]*metrics.MetricInfo),
 		cache:        memoize.NewMemoizer(time.Duration(ttl)*time.Second, time.Minute),
-		sites:        &SiteListResponse{},
-		workers:      workers,
+		Sites:        make(map[string]SiteDesc),
 	}
 
 	// declare metrics
@@ -513,6 +482,12 @@ func NewClient(id string, secret string, logger *slog.Logger, timeout int, ttl i
 	c.metrics["geo_dc"] = metrics.NewMetric("geo_dc", "Requests by data-center location", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "idc"}, nil)
 	c.metrics["visits_country"] = metrics.NewMetric("visits_country", "Visits by country", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "country"}, nil)
 	c.metrics["visits_client"] = metrics.NewMetric("visits_client", "Visits by client application", prometheus.GaugeValue, "imperva", "stats", []string{"domain", "client"}, nil)
+
+	// initial update of site list
+	err := c.UpdateSiteList()
+	if err != nil {
+		c.logger.Error("Error updating site list", "error", err)
+	}
 
 	return c
 }

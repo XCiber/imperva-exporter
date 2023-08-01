@@ -25,17 +25,18 @@ func envGet(s string, d interface{}) interface{} {
 }
 
 var (
-	logger      *slog.Logger
-	e           *exporter.Exporter
-	metricsPort = envGet("LISTEN", ":8080").(string)
-	metricsPath = envGet("METRICS", "/metrics").(string)
-	debug       = envGet("DEBUG", false).(bool)
-	readTimeout = envGet("READ_TIMEOUT", 60).(int)
-	timeout     = envGet("TIMEOUT", 15).(int)
-	apiId       = envGet("API_ID", "").(string)
-	apiKey      = envGet("API_KEY", "").(string)
-	cacheTtl    = envGet("CACHE_TTL", 120).(int)
-	workers     = envGet("WORKERS", 5).(int)
+	logger         *slog.Logger
+	e              *exporter.Exporter
+	metricsPort    = envGet("LISTEN", ":8080").(string)
+	metricsPath    = envGet("METRICS", "/metrics").(string)
+	debug          = envGet("DEBUG", false).(bool)
+	serverTimeout  = envGet("SERVER_TIMEOUT", 60).(int)
+	clientTimeout  = envGet("CLIENT_TIMEOUT", 15).(int)
+	apiId          = envGet("API_ID", "").(string)
+	apiKey         = envGet("API_KEY", "").(string)
+	cacheTtl       = envGet("CACHE_TTL", 120).(int)
+	workers        = envGet("WORKERS", 5).(int)
+	updateInterval = envGet("UPDATE_INTERVAL", 60).(int)
 )
 
 func root(cmd *cobra.Command, args []string) {
@@ -51,7 +52,7 @@ func root(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	e = exporter.NewExporter(logger, apiId, apiKey, timeout, cacheTtl, workers)
+	e = exporter.NewExporter(logger, apiId, apiKey, clientTimeout, cacheTtl, workers)
 	prometheus.MustRegister(e)
 	prometheus.MustRegister(v.NewCollector("imperva_exporter"))
 
@@ -59,8 +60,10 @@ func root(cmd *cobra.Command, args []string) {
 
 	srv := &http.Server{
 		Addr:        metricsPort,
-		ReadTimeout: time.Duration(readTimeout) * time.Second,
+		ReadTimeout: time.Duration(serverTimeout) * time.Second,
 	}
+
+	e.RunUpdater(time.Duration(updateInterval))
 
 	if err := srv.ListenAndServe(); err != nil {
 		logger.Error("msg", "Error starting HTTP server", "error", err)
@@ -68,7 +71,6 @@ func root(cmd *cobra.Command, args []string) {
 	}
 }
 
-// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:     "imperva-exporter",
 	Short:   "Imperva metrics exporter",
@@ -76,8 +78,6 @@ var rootCmd = &cobra.Command{
 	Run:     root,
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -89,8 +89,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&metricsPort, "listen", metricsPort, "metrics listen port (default is ':8080')")
 	rootCmd.PersistentFlags().StringVar(&metricsPath, "metrics", metricsPath, "metrics path (default is '/metrics')")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", debug, "enable debug loglevel")
-	rootCmd.PersistentFlags().IntVar(&readTimeout, "read_timeout", readTimeout, "http server read readTimeout in seconds (default is '15')")
-	rootCmd.PersistentFlags().IntVar(&timeout, "timeout", timeout, "http client timeout in seconds (default is '60')")
-	rootCmd.PersistentFlags().IntVar(&cacheTtl, "cache_ttl", cacheTtl, "Imperva Cache TTL in seconds (default is '240')")
-	rootCmd.PersistentFlags().IntVar(&workers, "workers", workers, "Imperva query workers (default is '5')")
+	rootCmd.PersistentFlags().IntVar(&serverTimeout, "read_timeout", serverTimeout, "http server read timeout in seconds (default is '15')")
+	rootCmd.PersistentFlags().IntVar(&clientTimeout, "clientTimeout", clientTimeout, "http client timeout in seconds (default is '60')")
+	rootCmd.PersistentFlags().IntVar(&cacheTtl, "cache_ttl", cacheTtl, "Cache TTL in seconds (default is '120')")
+	rootCmd.PersistentFlags().IntVar(&workers, "workers", workers, "Initial query workers (default is '5')")
+	rootCmd.PersistentFlags().IntVar(&updateInterval, "update_interval", updateInterval, "Imperva update interval in seconds (default is '60')")
 }
