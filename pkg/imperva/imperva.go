@@ -223,6 +223,7 @@ func (c *Client) sumToMetric(domain string, data SumData) ([]*prometheus.Metric,
 	res := make([]*prometheus.Metric, 0)
 	switch data.Id {
 	case "api.stats.requests_geo_dist_summary.datacenter":
+		keys := make(map[string]struct{})
 		for _, datum := range data.Data {
 			if len(datum) != 2 {
 				return nil, fmt.Errorf("invalid data format for metric %s", data.Id)
@@ -232,9 +233,13 @@ func (c *Client) sumToMetric(domain string, data SumData) ([]*prometheus.Metric,
 				key = "unknown"
 			}
 			val := datum[1].(float64)
-			res = append(res, c.metrics["geo_dc"].GetPromMetric(val, []string{domain, key}))
+			if _, found := keys[key]; !found {
+				keys[key] = struct{}{}
+				res = append(res, c.metrics["geo_dc"].GetPromMetric(val, []string{domain, key}))
+			}
 		}
 	case "api.stats.visits_dist_summary.country":
+		keys := make(map[string]struct{})
 		for _, datum := range data.Data {
 			if len(datum) != 2 {
 				return nil, fmt.Errorf("invalid data format for metric %s", data.Id)
@@ -244,9 +249,13 @@ func (c *Client) sumToMetric(domain string, data SumData) ([]*prometheus.Metric,
 				key = "unknown"
 			}
 			val := datum[1].(float64)
-			res = append(res, c.metrics["visits_country"].GetPromMetric(val, []string{domain, key}))
+			if _, found := keys[key]; !found {
+				keys[key] = struct{}{}
+				res = append(res, c.metrics["visits_country"].GetPromMetric(val, []string{domain, key}))
+			}
 		}
 	case "api.stats.visits_dist_summary.client_app":
+		keys := make(map[string]struct{})
 		for _, datum := range data.Data {
 			if len(datum) != 2 {
 				return nil, fmt.Errorf("invalid data format for metric %s", data.Id)
@@ -256,7 +265,10 @@ func (c *Client) sumToMetric(domain string, data SumData) ([]*prometheus.Metric,
 				key = "unknown"
 			}
 			val := datum[1].(float64)
-			res = append(res, c.metrics["visits_client"].GetPromMetric(val, []string{domain, key}))
+			if _, found := keys[key]; !found {
+				keys[key] = struct{}{}
+				res = append(res, c.metrics["visits_client"].GetPromMetric(val, []string{domain, key}))
+			}
 		}
 	default:
 		return nil, fmt.Errorf("unknown metric %s", data.Id)
